@@ -28,6 +28,7 @@ class AdminState(StatesGroup):
     edit_specialist_desc = State()
     edit_specialist_photo = State()
     add_time_slot = State()
+    editing_welcome = State()  # NEW
 
 # ═══════════════════════════════════════════════════════════
 # Access Control
@@ -57,6 +58,7 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📋 Записи", callback_data="admin:bookings"),
             InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"),
         ],
+        [InlineKeyboardButton(text="✏️ Приветствие", callback_data="admin:edit_welcome")],  # NEW
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="admin:close")],
     ])
 
@@ -219,6 +221,67 @@ async def cancel_action(callback: CallbackQuery, state: FSMContext):
         return
     await state.clear()
     await admin_main(callback, state)
+
+# ═══════════════════════════════════════════════════════════
+# WELCOME TEXT EDITING (NEW)
+# ═══════════════════════════════════════════════════════════
+
+@router.callback_query(F.data == "admin:edit_welcome")
+async def start_edit_welcome(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+
+    current = db.get_setting("welcome_text", "")
+    if current:
+        preview = current[:500] + "..." if len(current) > 500 else current
+        text = f"📝 <b>ТЕКУЩЕЕ ПРИВЕТСТВИЕ:</b>\n\n{preview}\n\n"
+    else:
+        text = "📝 <b>Приветствие не задано</b> (используется по умолчанию)\n\n"
+    
+    text += "Отправьте новый текст (HTML поддерживается):"
+
+    await state.set_state(AdminState.editing_welcome)
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Сбросить по умолчанию", callback_data="admin:reset_welcome")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:cancel_action")]
+        ]),
+        parse_mode="HTML"
+    )
+
+@router.callback_query(F.data == "admin:reset_welcome")
+async def reset_welcome(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+    
+    db.set_setting("welcome_text", "")
+    await state.clear()
+    await callback.answer("✅ Приветствие сброшено")
+    await admin_main(callback, state)
+
+@router.message(AdminState.editing_welcome)
+async def save_welcome_text(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+
+    new_text = message.text or message.caption or ""
+    
+    if not new_text.strip():
+        await message.answer("⚠️ Текст не может быть пустым")
+        return
+    
+    db.set_setting("welcome_text", new_text)
+    await state.clear()
+    
+    preview = new_text[:300] + "..." if len(new_text) > 300 else new_text
+    await message.answer(
+        f"✅ <b>Приветствие обновлено!</b>\n\n{preview}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Главная", callback_data="admin:main")],
+        ]),
+        parse_mode="HTML"
+    )
 
 # ═══════════════════════════════════════════════════════════
 # SPECIALISTS MANAGEMENT
