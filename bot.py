@@ -20,8 +20,8 @@ import admin
 
 router = Router()
 
-# Приветственный текст
-WELCOME_TEXT = """👋 <b>Добро пожаловать!</b>
+# Приветственный текст по умолчанию
+DEFAULT_WELCOME_TEXT = """👋 <b>Добро пожаловать!</b>
 
 Здесь ты можешь записаться на сессию с профессиональным слушателем, который понимает контекст бизнеса, а не смотрит на всё со стороны теории.
 
@@ -30,6 +30,12 @@ WELCOME_TEXT = """👋 <b>Добро пожаловать!</b>
 Пространство, где можно выговориться, проговорить сложные решения, сомнения или просто разгрузить голову."""
 
 LOGO_PATH = "logo.jpg"
+
+
+def get_welcome_text() -> str:
+    """Получить текст приветствия (кастомный или дефолтный)"""
+    custom = db.get_setting("welcome_text", "")
+    return custom if custom else DEFAULT_WELCOME_TEXT
 
 
 # ═══════════════════════════════════════════════════════════
@@ -147,7 +153,7 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer("⚠️ Нет доступных слушателей.\nПопробуйте позже.")
         return
 
-    await send_with_logo(message, WELCOME_TEXT, welcome_keyboard())
+    await send_with_logo(message, get_welcome_text(), welcome_keyboard())
 
 
 # ═══════════════════════════════════════════════════════════
@@ -393,7 +399,7 @@ async def enter_phone(message: Message, state: FSMContext, bot: Bot):
 async def back_to_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
-    await send_with_logo(callback.message, WELCOME_TEXT, welcome_keyboard())
+    await send_with_logo(callback.message, get_welcome_text(), welcome_keyboard())
 
 
 @router.callback_query(F.data == "backlist")
@@ -453,7 +459,7 @@ async def back_to_time_type(callback: CallbackQuery, state: FSMContext):
 async def restart_booking(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
-    await send_with_logo(callback.message, WELCOME_TEXT, welcome_keyboard())
+    await send_with_logo(callback.message, get_welcome_text(), welcome_keyboard())
 
 
 @router.callback_query(F.data == "ignore")
