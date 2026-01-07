@@ -52,6 +52,11 @@ def init_db():
                 FOREIGN KEY (specialist_id) REFERENCES specialists(id)
             );
             
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            
             CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(specialist_id, date);
         """)
         
@@ -66,6 +71,24 @@ def init_db():
             conn.execute("ALTER TABLE bookings ADD COLUMN booking_type TEXT DEFAULT 'scheduled'")
         except sqlite3.OperationalError:
             pass
+
+# ═══════════════════════════════════════════════════════════
+# SETTINGS
+# ═══════════════════════════════════════════════════════════
+
+def get_setting(key: str, default: str = "") -> str:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row[0] if row else default
+
+def set_setting(key: str, value: str):
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """, (key, value))
 
 # ═══════════════════════════════════════════════════════════
 # SPECIALISTS
