@@ -16,6 +16,12 @@ import database as db
 router = Router()
 
 # ═══════════════════════════════════════════════════════════
+# ROUTER-LEVEL FILTERS - все хендлеры только для админов
+# ═══════════════════════════════════════════════════════════
+router.message.filter(F.from_user.id.in_(ADMIN_IDS))
+router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
+
+# ═══════════════════════════════════════════════════════════
 # FSM States
 # ═══════════════════════════════════════════════════════════
 
@@ -28,14 +34,7 @@ class AdminState(StatesGroup):
     edit_specialist_desc = State()
     edit_specialist_photo = State()
     add_time_slot = State()
-    editing_welcome = State()  # NEW
-
-# ═══════════════════════════════════════════════════════════
-# Access Control
-# ═══════════════════════════════════════════════════════════
-
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    editing_welcome = State()
 
 # ═══════════════════════════════════════════════════════════
 # Keyboards
@@ -58,7 +57,7 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📋 Записи", callback_data="admin:bookings"),
             InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"),
         ],
-        [InlineKeyboardButton(text="✏️ Приветствие", callback_data="admin:edit_welcome")],  # NEW
+        [InlineKeyboardButton(text="✏️ Приветствие", callback_data="admin:edit_welcome")],
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="admin:close")],
     ])
 
@@ -172,9 +171,6 @@ def skip_photo_keyboard() -> InlineKeyboardMarkup:
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     await state.clear()
     stats = db.get_stats()
 
@@ -191,10 +187,6 @@ async def cmd_admin(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin:main")
 async def admin_main(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён", show_alert=True)
-        return
-
     await state.clear()
     stats = db.get_stats()
 
@@ -211,26 +203,19 @@ async def admin_main(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "admin:close")
 async def admin_close(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
     await callback.message.delete()
 
 @router.callback_query(F.data == "admin:cancel_action")
 async def cancel_action(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
     await state.clear()
     await admin_main(callback, state)
 
 # ═══════════════════════════════════════════════════════════
-# WELCOME TEXT EDITING (NEW)
+# WELCOME TEXT EDITING
 # ═══════════════════════════════════════════════════════════
 
 @router.callback_query(F.data == "admin:edit_welcome")
 async def start_edit_welcome(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     current = db.get_setting("welcome_text", "")
     if current:
         preview = current[:500] + "..." if len(current) > 500 else current
@@ -252,9 +237,6 @@ async def start_edit_welcome(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "admin:reset_welcome")
 async def reset_welcome(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-    
     db.set_setting("welcome_text", "")
     await state.clear()
     await callback.answer("✅ Приветствие сброшено")
@@ -262,9 +244,6 @@ async def reset_welcome(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.editing_welcome)
 async def save_welcome_text(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     new_text = message.text or message.caption or ""
     
     if not new_text.strip():
@@ -289,9 +268,6 @@ async def save_welcome_text(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin:specialists")
 async def list_specialists(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     await callback.message.edit_text(
         "👥 <b>СПЕЦИАЛИСТЫ</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -303,16 +279,11 @@ async def list_specialists(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:spec:list:"))
 async def list_specialists_filtered(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
     show_all = callback.data.split(":")[-1] == "1"
     await callback.message.edit_reply_markup(reply_markup=specialists_keyboard(show_all))
 
 @router.callback_query(F.data.startswith("admin:spec:view:"))
 async def view_specialist(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     spec = db.get_specialist(spec_id)
 
@@ -340,9 +311,6 @@ async def view_specialist(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin:spec:add")
 async def add_specialist_start(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     await state.set_state(AdminState.add_specialist_id)
     await callback.message.edit_text(
         "➕ <b>НОВЫЙ СПЕЦИАЛИСТ</b>\n"
@@ -355,9 +323,6 @@ async def add_specialist_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.add_specialist_id)
 async def add_specialist_id(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     spec_id = message.text.strip().lower().replace(" ", "_")
 
     if db.get_specialist(spec_id):
@@ -375,9 +340,6 @@ async def add_specialist_id(message: Message, state: FSMContext):
 
 @router.message(AdminState.add_specialist_name)
 async def add_specialist_name(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     await state.update_data(new_spec_name=message.text.strip())
     await state.set_state(AdminState.add_specialist_desc)
     await message.answer(
@@ -390,9 +352,6 @@ async def add_specialist_name(message: Message, state: FSMContext):
 
 @router.message(AdminState.add_specialist_desc)
 async def add_specialist_desc(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     desc = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(new_spec_desc=desc)
     await state.set_state(AdminState.add_specialist_photo)
@@ -406,9 +365,6 @@ async def add_specialist_desc(message: Message, state: FSMContext):
 
 @router.message(AdminState.add_specialist_photo, F.photo)
 async def add_specialist_photo(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     photo_file_id = message.photo[-1].file_id
     data = await state.get_data()
 
@@ -433,9 +389,6 @@ async def add_specialist_photo(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin:spec:skip_photo")
 async def skip_photo(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     data = await state.get_data()
     
     db.add_specialist(
@@ -462,9 +415,6 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:spec:edit:name:"))
 async def edit_name_start(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     spec = db.get_specialist(spec_id)
     
@@ -481,9 +431,6 @@ async def edit_name_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.edit_specialist_name)
 async def edit_name(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     data = await state.get_data()
     db.update_specialist(data['edit_spec_id'], name=message.text.strip())
     await state.clear()
@@ -497,9 +444,6 @@ async def edit_name(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:spec:edit:desc:"))
 async def edit_desc_start(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     spec = db.get_specialist(spec_id)
     
@@ -516,9 +460,6 @@ async def edit_desc_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.edit_specialist_desc)
 async def edit_desc(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     data = await state.get_data()
     desc = "" if message.text.strip() == "-" else message.text.strip()
     db.update_specialist(data['edit_spec_id'], description=desc)
@@ -533,9 +474,6 @@ async def edit_desc(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:spec:edit:photo:"))
 async def edit_photo_start(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     await state.update_data(edit_spec_id=spec_id)
     await state.set_state(AdminState.edit_specialist_photo)
@@ -549,9 +487,6 @@ async def edit_photo_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.edit_specialist_photo, F.photo)
 async def edit_photo(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     data = await state.get_data()
     photo_file_id = message.photo[-1].file_id
     db.update_specialist_photo(data['edit_spec_id'], photo_file_id)
@@ -570,9 +505,6 @@ async def edit_photo(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:spec:toggle:"))
 async def toggle_specialist(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     db.toggle_specialist(spec_id)
     spec = db.get_specialist(spec_id)
@@ -582,9 +514,6 @@ async def toggle_specialist(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:spec:delete:"))
 async def delete_confirm(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     spec = db.get_specialist(spec_id)
 
@@ -598,9 +527,6 @@ async def delete_confirm(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:spec:confirm_delete:"))
 async def delete_specialist(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     spec_id = callback.data.split(":")[-1]
     db.delete_specialist(spec_id)
     await callback.answer("✅ Удалено")
@@ -612,9 +538,6 @@ async def delete_specialist(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin:slots")
 async def list_slots(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     await callback.message.edit_text(
         "🕐 <b>ВРЕМЕННЫЕ СЛОТЫ</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -625,9 +548,6 @@ async def list_slots(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:slot:toggle:"))
 async def toggle_slot(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     slot_id = int(callback.data.split(":")[-1])
     db.toggle_time_slot(slot_id)
     await callback.message.edit_reply_markup(reply_markup=slots_keyboard())
@@ -635,9 +555,6 @@ async def toggle_slot(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin:slot:add")
 async def add_slot_start(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        return
-
     await state.set_state(AdminState.add_time_slot)
     await callback.message.edit_text(
         "➕ <b>НОВЫЙ СЛОТ</b>\n\n"
@@ -649,9 +566,6 @@ async def add_slot_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.add_time_slot)
 async def add_slot(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
     time_str = message.text.strip()
 
     try:
@@ -678,9 +592,6 @@ async def add_slot(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin:bookings")
 async def bookings_menu(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     await callback.message.edit_text(
         "📋 <b>ЗАПИСИ</b>\n\n"
         "Выберите период:",
@@ -690,9 +601,6 @@ async def bookings_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:bookings:"))
 async def list_bookings(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     filter_type = callback.data.split(":")[-1]
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -740,9 +648,6 @@ async def list_bookings(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:booking:view:"))
 async def view_booking(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     booking_id = int(callback.data.split(":")[-1])
     b = db.get_booking(booking_id)
 
@@ -775,9 +680,6 @@ async def view_booking(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin:booking:cancel:"))
 async def cancel_booking(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     booking_id = int(callback.data.split(":")[-1])
     db.cancel_booking(booking_id)
     await callback.answer("✅ Отменено")
@@ -789,9 +691,6 @@ async def cancel_booking(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin:stats")
 async def show_stats(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return
-
     stats = db.get_stats()
 
     await callback.message.edit_text(
