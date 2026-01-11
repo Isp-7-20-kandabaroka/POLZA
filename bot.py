@@ -478,11 +478,14 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    dp.include_router(admin.router)
+    # User router ПЕРВЫМ - это важно!
     dp.include_router(router)
+    dp.include_router(admin.router)
 
+    specs = db.get_specialists()
     print("🚀 Bot started")
     print(f"📋 Admins: {ADMIN_IDS}")
+    print(f"📊 Specialists: {len(specs)}")
     print(f"🖼 Logo: {'✅' if has_logo() else '❌'} {LOGO_PATH}")
     await dp.start_polling(bot)
 
